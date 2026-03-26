@@ -1,0 +1,7 @@
+node_modules/
+.env
+.claude/
+
+# Temp files from testing
+*.log
+*.sh
