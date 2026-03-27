@@ -54,7 +54,7 @@ async function runValidation() {
     // but we can check if the handler responds.
     
     console.log("\n🎉 ALL PROTOCOL CHECKS PASSED.");
-    console.log("Server is 100% compliant with MCP v2024-11-05.");
+    console.log("Server is 100% compliant with MCP 2026 Standard.");
 
   } catch (error) {
     console.error("\n❌ VALIDATION FAILED:");

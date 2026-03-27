@@ -58,7 +58,7 @@ Tambahkan konfigurasi berikut ke MCP settings Anda:
 - `bps_list_press_release`: Berita resmi statistik terbaru.
 
 ## 💡 Contoh Prompt untuk AI
-> "Coba cek angka kemiskinan di Kabupaten Mempawah tahun 2023 dan bandingkan dengan rata-rata Provinsi Kalimantan Barat."
+> "Coba cek angka kemiskinan di Kabupaten Mempawah tahun 2026 dan bandingkan dengan rata-rata Provinsi Kalimantan Barat."
 
 Server akan otomatis:
 1. Mencari `domain_id` Mempawah.

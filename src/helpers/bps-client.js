@@ -5,6 +5,33 @@
 
 import { BASE_URL, API_KEY } from "../config.js";
 
+/** Centralized response handler for JSON safety */
+async function handleResponse(res) {
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+
+  const contentType = res.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await res.text();
+    return {
+      status: "ERROR",
+      message: "BPS API returned non-JSON response (likely HTML error/maintenance page).",
+      details: text.slice(0, 200).trim(),
+    };
+  }
+
+  try {
+    return await res.json();
+  } catch (e) {
+    return {
+      status: "ERROR",
+      message: "Failed to parse BPS API response as JSON.",
+      error: e.message,
+    };
+  }
+}
+
 /** Standard BPS API fetch */
 export async function bpsFetch(endpoint, params = {}) {
   const url = new URL(`${BASE_URL}${endpoint}`);
@@ -15,8 +42,7 @@ export async function bpsFetch(endpoint, params = {}) {
     }
   }
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return res.json();
+  return handleResponse(res);
 }
 
 /** EXIM (ekspor/impor) endpoint */
@@ -29,8 +55,7 @@ export async function bpsEximFetch(params = {}) {
     }
   }
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return res.json();
+  return handleResponse(res);
 }
 
 /** SIMDASI / Interoperabilitas endpoint */
@@ -45,6 +70,5 @@ export async function bpsInteropFetch(datasource, id, params = {}) {
     }
   }
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return res.json();
+  return handleResponse(res);
 }

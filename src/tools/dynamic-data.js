@@ -74,7 +74,7 @@ export function register(server) {
     },
     safeHandler(async ({ domain, var: varId, lang, page }) => {
       const data = await bpsFetch("/list", { model: "vervar", domain, var: varId, lang, page });
-      return textResponse(curateListResponse(data, v => `• ${v.label || v.vervar} (id: ${v.val || v.vervar_id})`));
+      return textResponse(curateListResponse(data, v => `• ${v.label || v.vervar} (id: ${v.item_ver_id || v.kode_ver_id || v.val || v.vervar_id})`));
     })
   );
 }

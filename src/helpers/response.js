@@ -44,8 +44,11 @@ export function curateListResponse(data, fieldExtractor) {
  * This function first tries the standard approach. If no matches are found,
  * it falls back to a reverse-lookup strategy using known th_ids as substrings.
  */
-export function curateDynamicData(data) {
+export function curateDynamicData(data, metadata = {}) {
   if (data?.status !== "OK" || data?.["data-availability"] !== "available") {
+    if (data?.status === "ERROR") {
+      return `❌ BPS API Error: ${data.message}${data.details ? ` (${data.details})` : ""}`;
+    }
     return `Status: ${data?.status || "unknown"}. Data tidak tersedia. Coba periksa parameter var, domain, atau th.`;
   }
 
@@ -55,7 +58,8 @@ export function curateDynamicData(data) {
   const tahunMap = {};
   (data.tahun || []).forEach(t => { tahunMap[t.val] = t.label; });
 
-  const lines = [`📊 ${varInfo.label || "Data"} (${varInfo.unit || ""})`];
+  const unit = varInfo.unit || "";
+  const lines = [`📊 ${varInfo.label || "Data"}${unit ? ` (${unit})` : ""}`];
   if (data.last_update) lines.push(`📅 Update terakhir: ${data.last_update}`);
   lines.push("");
 
@@ -67,7 +71,6 @@ export function curateDynamicData(data) {
     for (const [key, value] of Object.entries(datacontent)) {
       for (const thId of Object.keys(tahunMap)) {
         for (const vvId of Object.keys(vervarMap)) {
-          // Try multiple key patterns BPS uses
           const patterns = [
             `${vvId}${varInfo.val}0${thId}${data.turtahun?.[0]?.val || "95"}`,
             `${vvId}${varInfo.val}0${thId}0`,
@@ -85,40 +88,23 @@ export function curateDynamicData(data) {
   }
 
   // ── Strategy 2: Fallback — group by tahun ID suffix matching ──
-  // For data where vervar keys are domain codes (e.g. "6104") not in vervarMap
   if (Object.keys(byYear).length === 0 && Object.keys(tahunMap).length > 0) {
-    // Build a lookup from vervar labels by trying to match datacontent keys
-    // Key pattern: {prefix}{var_id}{th_id}{suffix}
-    // We know var_id and th_id, so we can extract the prefix (vervar/domain code)
     const varId = String(varInfo.val);
-
     for (const [key, value] of Object.entries(datacontent)) {
-      // Try to find which tahun this key belongs to
       for (const thId of Object.keys(tahunMap)) {
-        // Check if key contains var_id + th_id pattern
-        const pattern1 = `${varId}${thId}`;     // e.g. "85125"
-        const pattern2 = `${varId}0${thId}`;     // e.g. "850125"
+        const pattern1 = `${varId}${thId}`;
+        const pattern2 = `${varId}0${thId}`;
 
         if (key.includes(pattern1) || key.includes(pattern2)) {
           const year = tahunMap[thId];
-          // Extract the prefix as region/vervar identifier
-          let prefix = key;
-          if (key.includes(pattern2)) {
-            prefix = key.split(pattern2)[0];
-          } else {
-            prefix = key.split(pattern1)[0];
-          }
-
-          // Try to find a matching vervar label
+          let prefix = key.includes(pattern2) ? key.split(pattern2)[0] : key.split(pattern1)[0];
           let label = vervarMap[prefix] || prefix;
 
-          // If vervar is empty but we have a 4-digit prefix, it's likely a domain code
           if (Object.keys(vervarMap).length === 0 && /^\d{4}$/.test(prefix)) {
-            label = `[${prefix}]`; // Will be shown as domain code
+            label = `Wilayah [${prefix}]`;
           }
 
           if (!byYear[year]) byYear[year] = [];
-          // Avoid duplicate entries for same year + label
           if (!byYear[year].find(e => e.sector === label)) {
             byYear[year].push({ sector: label, value });
           }
@@ -129,18 +115,18 @@ export function curateDynamicData(data) {
   }
 
   // ── Render year-grouped data ──
-  for (const [year, items] of Object.entries(byYear).sort()) {
+  for (const [year, items] of Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0]))) {
     lines.push(`── ${year} ──`);
     for (const item of items) {
-      const formattedValue = typeof item.value === "number"
-        ? item.value.toLocaleString("id-ID")
-        : item.value;
-      lines.push(`  ${item.sector}: ${formattedValue}`);
+      let valDisplay = item.value;
+      if (typeof item.value === "number" || (!isNaN(item.value) && item.value !== "")) {
+        valDisplay = Number(item.value).toLocaleString("id-ID");
+      }
+      lines.push(`  ${item.sector}: ${valDisplay}`);
     }
     lines.push("");
   }
 
-  // ── Strategy 3: Last resort — dump raw keys ──
   if (Object.keys(byYear).length === 0) {
     lines.push("Data (raw key → value):");
     for (const [key, value] of Object.entries(datacontent)) {
@@ -148,7 +134,56 @@ export function curateDynamicData(data) {
     }
   }
 
-  return lines.join("\n");
+  // ── Confidence & Limitations Logic (v4.0) ──
+  let confidence = 100;
+  const limitations = [];
+  const requestedYear = metadata.requestedYear ? parseInt(metadata.requestedYear.split(",").pop()) : new Date().getFullYear();
+  const yearsFound = Object.keys(byYear).map(y => parseInt(y)).sort((a,b) => b-a);
+  const latestYearFound = yearsFound[0] || 0;
+
+  // 1. Staleness Penalty
+  if (latestYearFound > 0 && requestedYear > latestYearFound) {
+    const diff = requestedYear - latestYearFound;
+    confidence -= (diff * 10);
+    limitations.push(`Data mutakhir yang ditemukan adalah tahun ${latestYearFound}, bukan ${requestedYear}.`);
+  }
+
+  // 2. Lineage Penalty (Domain Hopping)
+  if (metadata.lineage) {
+    confidence -= 15;
+    limitations.push("Data diambil dari domain induk (Provinsi) karena keterbatasan data di level Kabupaten/Kota.");
+  }
+
+  // 3. Proxy Detection
+  if (metadata.topic && varInfo.label) {
+    const topicKeywords = metadata.topic.toLowerCase().split(/\s+/);
+    const varLabelLower = varInfo.label.toLowerCase();
+    const hasOverlap = topicKeywords.some(kw => kw.length > 3 && varLabelLower.includes(kw));
+    
+    if (!hasOverlap) {
+      confidence -= 30;
+      limitations.push(`Variabel "${varInfo.label}" digunakan sebagai proksi untuk topik "${metadata.topic}". Hasil mungkin tidak mencerminkan indikator secara langsung.`);
+    }
+  }
+
+  // ── Source Citation & Transparency Footer (v4.0) ──
+  const footerLines = ["", "─".repeat(24)];
+  
+  // Confidence Score Display
+  const confidenceColor = confidence >= 80 ? "✅" : (confidence >= 50 ? "⚠️" : "❌");
+  footerLines.push(`${confidenceColor} Tingkat Keyakinan: ${Math.max(confidence, 0)}%`);
+
+  if (limitations.length > 0) {
+    footerLines.push("❗ Keterbatasan Data:");
+    limitations.forEach(l => footerLines.push(`   • ${l}`));
+  }
+
+  if (metadata.lineage) footerLines.push(`🔗 Silsilah: ${metadata.lineage}`);
+  if (varInfo.source) footerLines.push(`📚 Sumber: ${varInfo.source}`);
+  footerLines.push(`📝 Referensi: BPS ${metadata.domainLabel || "Nasional"} (Variable ID: ${varInfo.val})`);
+  
+  // portalUrl logic removed per user feedback for 2026 context
+  return lines.join("\n").trim() + "\n" + footerLines.join("\n");
 }
 
 /**

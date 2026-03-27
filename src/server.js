@@ -40,7 +40,7 @@ server.resource(
       {
         uri: "bps://guide",
         mimeType: "text/markdown",
-        text: `# Panduan BPS MCP Server v2.0 (Agent-First)
+        text: `# Panduan BPS MCP Server v2.3 (Agent-First)
 
 ## Tool Utama
 | Tool | Fungsi |
@@ -49,9 +49,9 @@ server.resource(
 
 ### Contoh Penggunaan
 \`\`\`
-bps_query(topic="PDRB", region="Mempawah", year="2023")
+bps_query(topic="PDRB", region="Mempawah", year="2025")
 bps_query(topic="kemiskinan", region="Jawa Barat")
-bps_query(topic="inflasi", region="Nasional", year="2024")
+bps_query(topic="inflasi", region="Nasional", year="2026")
 \`\`\`
 
 ## Tools Lanjutan (Fallback)
