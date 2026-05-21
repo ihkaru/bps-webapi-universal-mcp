@@ -8,6 +8,7 @@ import { register as registerPressRelease } from "./press-release.js";
 import { register as registerTrade } from "./trade.js";
 import { register as registerReference } from "./reference.js";
 import { register as registerSimdasi } from "./simdasi.js";
+import { register as registerDynamicExecutor } from "./dynamic-executor.js";
 
 export function registerAllTools(server) {
   registerBpsQuery(server);       // PRIMARY: bps_query
@@ -16,4 +17,5 @@ export function registerAllTools(server) {
   registerTrade(server);          // foreign_trade
   registerReference(server);      // domain_list, subjects, indicators, publication, infographic, glosarium, news
   registerSimdasi(server);        // simdasi_subjects, simdasi_tables, simdasi_get_table, simdasi_regions
+  registerDynamicExecutor(server); // DYNAMIC: run_shell, execute_js
 }

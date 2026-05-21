@@ -67,9 +67,19 @@ Gunakan hanya jika \`bps_query\` tidak mencukupi.
 | \`bps_list_vertical_var\` | Cari vervar_id baris |
 | \`bps_domain_list\` | Cari domain_id wilayah |
 | \`bps_list_subjects\` | Daftar topik statistik |
+| \`simdasi_get_table\` | Ambil tabel SIMDASI (Kabupaten Dalam Angka) |
+
+## Dynamic Execution (Code-as-a-Tool)
+Gunakan untuk skenario kompleks yang memerlukan pengolahan data kustom atau manajemen codebase.
+
+| Tool | Fungsi |
+|------|--------|
+| \`run_shell\` | Jalankan perintah CLI (ls, grep, curl, sed, dll) |
+| \`execute_js\` | Jalankan kode Node.js dinamis dengan akses ke BPS Client |
 
 ## Catatan
 - Domain nasional: \`"0000"\`
+- **Security**: \`run_shell\` memblokir akses ke file \`.env\` dan \`mcp_config.json\`.
 - Semua response sudah dikurasi (compact, token-efficient)
 - Errors berisi saran tindakan (actionable)
 - Parameter ID otomatis di-coerce (angka/string accepted)

@@ -14,6 +14,7 @@ Berbeda dengan wrapper API tradisional, server ini menggunakan pendekatan **Agen
 - **Fuzzy Region Matching**: Mengenali input natural seperti "Mempawah" sebagai "Kab. Mempawah" tanpa perlu ID manual.
 - **Full Coverage**: Mendukung Dynamic Data, Strategic Indicators, Press Releases, Foreign Trade, dan SIMDASI.
 - **100% Protocol Compliant**: Mendukung standar MCP terbaru (v2024-11-05) dengan logging yang aman (Stderr-only).
+- **Dynamic Code Interpreter (Code-as-a-Tool)**: AI dapat menulis dan menjalankan skrip `bash` atau `js` sendiri untuk orkestrasi data yang sangat kompleks atau manajemen codebase.
 
 ## 🛠️ Instalasi & Konfigurasi
 

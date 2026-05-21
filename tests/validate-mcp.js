@@ -36,7 +36,13 @@ async function runValidation() {
     console.log(`✅ Found ${tools.tools.length} tools.`);
 
     const toolNames = tools.tools.map(t => t.name);
-    const criticalTools = ["bps_query", "bps_domain_list", "bps_get_dynamic_data"];
+    const criticalTools = [
+      "bps_query", 
+      "bps_domain_list", 
+      "bps_get_dynamic_data",
+      "run_shell",
+      "execute_js"
+    ];
     
     for (const tool of criticalTools) {
       if (toolNames.includes(tool)) {

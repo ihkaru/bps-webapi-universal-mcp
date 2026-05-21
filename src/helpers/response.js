@@ -1,217 +1,154 @@
 /**
  * Response Helpers — Curated, token-efficient response formatting.
- * All functions are pure (no side effects).
- *
- * v2.1: Fixed curateDynamicData to handle provincial-level data
- *       where datacontent keys don't follow the standard vervar format.
+ * v9.5: Universal BPS Decoder — Final Audit-Driven version.
  */
 
-/**
- * Curate a BPS list response into compact text with pagination metadata.
- * @param {object} data - Raw BPS API response
- * @param {function} fieldExtractor - (item) => formatted string
- */
 export function curateListResponse(data, fieldExtractor) {
-  if (data?.status !== "OK" || data?.["data-availability"] !== "available") {
-    return `Status: ${data?.status || "unknown"}. Data tidak tersedia untuk parameter yang diberikan.`;
+  if (data?.status?.toUpperCase() !== "OK" || data?.["data-availability"] !== "available") {
+    return `Status: ${data?.status || "unknown"}. Data tidak tersedia.`;
   }
-
-  const rawData = data.data;
-  if (!Array.isArray(rawData) || rawData.length < 2) {
-    return "Data kosong atau format tidak dikenali.";
-  }
-
-  const pagination = rawData[0];
-  const items = rawData[1];
-
-  const paginationInfo = `[Halaman ${pagination.page}/${pagination.pages} | Total: ${pagination.total}${pagination.page < pagination.pages ? " | has_more: true" : ""}]`;
-
-  if (!Array.isArray(items) || items.length === 0) {
-    return `${paginationInfo}\nTidak ada data di halaman ini.`;
-  }
-
-  const formattedItems = items.map(fieldExtractor).join("\n");
-  return `${paginationInfo}\n${formattedItems}`;
+  const raw = data.data;
+  if (!Array.isArray(raw) || raw.length < 2) return "Data kosong.";
+  const [pag, items] = raw;
+  return `[Halaman ${pag.page}/${pag.pages} | Total: ${pag.total}]\n` + items.map(fieldExtractor).join("\n");
 }
 
-/**
- * Curate dynamic data response into a readable, year-grouped summary.
- *
- * BPS datacontent key format varies:
- *   - Standard:    {vervar_id}{var_id}0{th_id}{turth_id}
- *   - Provincial:  {domain_prefix}{var_id}{th_id}0  (no vervar dimension match)
- *
- * This function first tries the standard approach. If no matches are found,
- * it falls back to a reverse-lookup strategy using known th_ids as substrings.
- */
 export function curateDynamicData(data, metadata = {}) {
-  if (data?.status !== "OK" || data?.["data-availability"] !== "available") {
-    if (data?.status === "ERROR") {
-      return `❌ BPS API Error: ${data.message}${data.details ? ` (${data.details})` : ""}`;
-    }
-    return `Status: ${data?.status || "unknown"}. Data tidak tersedia. Coba periksa parameter var, domain, atau th.`;
+  // 1. Availability validation
+  const status = String(data?.status || "").toUpperCase();
+  if (status !== "OK" || data?.["data-availability"] !== "available") {
+    return `⚠️ Data "${metadata.topic || "Indikator"}" tidak tersedia untuk wilayah ini.`;
   }
 
-  const varInfo = data.var?.[0] || {};
+  // 2. Metadata Extraction (Multi-Variant Mapping)
+  const varInfo = data.var?.[0] || data.variable?.[0] || { label: metadata.topic || "Indikator" };
   const vervarMap = {};
-  (data.vervar || []).forEach(v => { vervarMap[v.val] = v.label; });
-  const tahunMap = {};
-  (data.tahun || []).forEach(t => { tahunMap[t.val] = t.label; });
+  const rawVervars = data.vervar || data.vv || [];
+  (rawVervars || []).forEach(v => { 
+    const id = String(v.val || v.vv_id || v.id || "");
+    if (id) vervarMap[id] = v.label || v.vervar || v.vv_name || v.name; 
+  });
 
-  const unit = varInfo.unit || "";
-  const lines = [`📊 ${varInfo.label || "Data"}${unit ? ` (${unit})` : ""}`];
-  if (data.last_update) lines.push(`📅 Update terakhir: ${data.last_update}`);
-  lines.push("");
+  const tahunMap = data._tahunMap || {};
+  if (Object.keys(tahunMap).length === 0) {
+    const rawTahun = data.tahun || data.th || [];
+    (rawTahun || []).forEach(t => { 
+      const id = String(t.val || t.th_id || t.id || "");
+      if (id) tahunMap[id] = t.label || t.th || t.th_name; 
+    });
+  }
+
+  const turvarMap = {};
+  const rawTurvars = data.turvar || data.tv || [];
+  (rawTurvars || []).forEach(t => { 
+    const id = String(t.val || t.turvar_id || t.id || "");
+    if (id) turvarMap[id] = t.label || t.turvar || t.tv_name || t.name; 
+  });
 
   const datacontent = data.datacontent || {};
   const byYear = {};
+  const filterRegion = (metadata.filterRegion || "").toLowerCase().replace(/kabupaten|kota/g, "").trim();
 
-  // ── Strategy 1: Standard vervar × tahun key matching ──
-  if (Object.keys(vervarMap).length > 0 && Object.keys(tahunMap).length > 0) {
-    for (const [key, value] of Object.entries(datacontent)) {
-      for (const thId of Object.keys(tahunMap)) {
-        for (const vvId of Object.keys(vervarMap)) {
-          const patterns = [
-            `${vvId}${varInfo.val}0${thId}${data.turtahun?.[0]?.val || "95"}`,
-            `${vvId}${varInfo.val}0${thId}0`,
-            `${vvId}${varInfo.val}${thId}0`,
-          ];
-          if (patterns.includes(key)) {
-            const year = tahunMap[thId];
-            if (!byYear[year]) byYear[year] = [];
-            byYear[year].push({ sector: vervarMap[vvId], value });
-            break;
-          }
-        }
-      }
+  // 3. Substring-First Matching Logic
+  const varId = String(varInfo.val || "");
+  const varIdStr = String(metadata.varId);
+  const thIds = Object.keys(tahunMap);
+  const vvIds = Object.keys(vervarMap);
+  const tvIds = Object.keys(turvarMap).filter(id => id !== "0");
+
+  for (const [key, value] of Object.entries(datacontent)) {
+    // v13.1: Strict Path Search (Avoiding Collision with VarID)
+    // Identify which year is buried in the key (ignoring the VarID segment)
+    const keySearchingTh = key.replace(varIdStr, "____");
+    const matchedThId = thIds.find(id => keySearchingTh.includes(id));
+    
+    if (!matchedThId) continue;
+
+    // Identify which vvId is buried in the key (usually at start or after varId)
+    // v10.3: Improved matching (Check if key starts with vervar ID OR if key contains it)
+    const matchedVvId = vvIds.find(id => key.startsWith(id)) || vvIds.find(id => key.includes(id));
+    
+    // Identify Column/Flavor
+    const matchedTvId = tvIds.find(id => key.includes(id));
+
+    const yearLabel = tahunMap[matchedThId];
+    let regionLabel = matchedVvId ? vervarMap[matchedVvId] : "Total/Indonesia";
+    
+    // Region Filtering (v14.1: Quad-Identity Identity Resolution)
+    if (filterRegion) {
+      const clean = regionLabel.toLowerCase().replace(/kabupaten|kota/g, "").trim();
+      
+      // Match Patterns:
+      // 1. Internal ID Match (e.g. 195)
+      // 2. Full MFD Match (e.g. 8108)
+      // 3. Suffix Match (e.g. 24 for 7324) — Common in 7300 (Sulsel)
+      // 4. Ordinal Match (e.g. 24) — Also common in Sulsel legacy keys
+      const isInternalMatch = (metadata.internalId && key.startsWith(metadata.internalId));
+      const isMfdMatch = (metadata.mfdCode && key.startsWith(metadata.mfdCode));
+      
+      const mfdSuffix = (metadata.mfdCode && metadata.mfdCode.length === 4) ? metadata.mfdCode.slice(2) : null;
+      const isSuffixMatch = mfdSuffix && key.includes(mfdSuffix) && key.indexOf(mfdSuffix) > 4;
+      
+      const isOrdinalMatch = metadata.ordinalId && key.includes(metadata.ordinalId) && key.indexOf(metadata.ordinalId) > 4;
+      
+      const isLabelMatch = clean === filterRegion || clean.includes(filterRegion) || filterRegion.includes(clean);
+      
+      if (!isInternalMatch && !isMfdMatch && !isSuffixMatch && !isOrdinalMatch && !isLabelMatch) continue;
     }
+
+    const colSuffix = matchedTvId ? ` [${turvarMap[matchedTvId]}]` : "";
+    if (!byYear[yearLabel]) byYear[yearLabel] = [];
+    byYear[yearLabel].push({ sector: regionLabel + colSuffix, value });
   }
 
-  // ── Strategy 2: Fallback — group by tahun ID suffix matching ──
-  if (Object.keys(byYear).length === 0 && Object.keys(tahunMap).length > 0) {
-    const varId = String(varInfo.val);
-    for (const [key, value] of Object.entries(datacontent)) {
-      for (const thId of Object.keys(tahunMap)) {
-        const pattern1 = `${varId}${thId}`;
-        const pattern2 = `${varId}0${thId}`;
+  // 4. Group results by year
+  const lines = [`📊 ${varInfo.label || metadata.topic}${varInfo.unit ? ` (${varInfo.unit})` : ""}`];
+  if (data.last_update) lines.push(`📅 Update: ${data.last_update}`);
+  lines.push("");
 
-        if (key.includes(pattern1) || key.includes(pattern2)) {
-          const year = tahunMap[thId];
-          let prefix = key.includes(pattern2) ? key.split(pattern2)[0] : key.split(pattern1)[0];
-          let label = vervarMap[prefix] || prefix;
-
-          if (Object.keys(vervarMap).length === 0 && /^\d{4}$/.test(prefix)) {
-            label = `Wilayah [${prefix}]`;
-          }
-
-          if (!byYear[year]) byYear[year] = [];
-          if (!byYear[year].find(e => e.sector === label)) {
-            byYear[year].push({ sector: label, value });
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  // ── Render year-grouped data ──
-  for (const [year, items] of Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0]))) {
+  const sortedYears = Object.keys(byYear).sort((a,b) => b.localeCompare(a));
+  for (const year of sortedYears) {
     lines.push(`── ${year} ──`);
-    for (const item of items) {
-      let valDisplay = item.value;
-      if (typeof item.value === "number" || (!isNaN(item.value) && item.value !== "")) {
-        valDisplay = Number(item.value).toLocaleString("id-ID");
-      }
-      lines.push(`  ${item.sector}: ${valDisplay}`);
+    const seen = new Set();
+    for (const item of byYear[year]) {
+      if (seen.has(item.sector)) continue;
+      seen.add(item.sector);
+      const val = (isNaN(item.value) || item.value === "" || item.value === null) 
+                  ? item.value 
+                  : Number(item.value).toLocaleString("id-ID");
+      lines.push(`  • ${item.sector}: ${val}`);
     }
     lines.push("");
   }
 
-  if (Object.keys(byYear).length === 0) {
-    lines.push("Data (raw key → value):");
-    for (const [key, value] of Object.entries(datacontent)) {
-      lines.push(`  ${key}: ${value}`);
+  // Fallback for debugging (Should be rare now)
+  if (sortedYears.length === 0) {
+    if (Object.keys(datacontent).length > 0) {
+      lines.push("💡 Format data kompleks, menampilkan sampel:");
+      Object.entries(datacontent).slice(0, 3).forEach(([k,v]) => lines.push(`  ${k}: ${v}`));
+    } else {
+      lines.push("⚠️ Data numerik tidak ditemukan.");
     }
   }
 
-  // ── Confidence & Limitations Logic (v4.0) ──
-  let confidence = 100;
-  const limitations = [];
-  const requestedYear = metadata.requestedYear ? parseInt(metadata.requestedYear.split(",").pop()) : new Date().getFullYear();
-  const yearsFound = Object.keys(byYear).map(y => parseInt(y)).sort((a,b) => b-a);
-  const latestYearFound = yearsFound[0] || 0;
+  // 5. Transparency Footer
+  const confidence = metadata.lineage ? 85 : 95;
+  const footerLines = [
+    "─".repeat(32),
+    `${confidence >= 80 ? "✅" : "⚠️"} Tingkat Keyakinan: ${confidence}%`,
+    metadata.lineage ? `🔗 Silsilah: ${metadata.lineage}` : null,
+    `📚 Sumber: BPS ${metadata.domainLabel || "BPS"}` + (varInfo.val ? ` (Variable ID: ${varInfo.val})` : ""),
+  ].filter(Boolean);
 
-  // 1. Staleness Penalty
-  if (latestYearFound > 0 && requestedYear > latestYearFound) {
-    const diff = requestedYear - latestYearFound;
-    confidence -= (diff * 10);
-    limitations.push(`Data mutakhir yang ditemukan adalah tahun ${latestYearFound}, bukan ${requestedYear}.`);
-  }
-
-  // 2. Lineage Penalty (Domain Hopping)
-  if (metadata.lineage) {
-    confidence -= 15;
-    limitations.push("Data diambil dari domain induk (Provinsi) karena keterbatasan data di level Kabupaten/Kota.");
-  }
-
-  // 3. Proxy Detection
-  if (metadata.topic && varInfo.label) {
-    const topicKeywords = metadata.topic.toLowerCase().split(/\s+/);
-    const varLabelLower = varInfo.label.toLowerCase();
-    const hasOverlap = topicKeywords.some(kw => kw.length > 3 && varLabelLower.includes(kw));
-    
-    if (!hasOverlap) {
-      confidence -= 30;
-      limitations.push(`Variabel "${varInfo.label}" digunakan sebagai proksi untuk topik "${metadata.topic}". Hasil mungkin tidak mencerminkan indikator secara langsung.`);
-    }
-  }
-
-  // ── Source Citation & Transparency Footer (v4.0) ──
-  const footerLines = ["", "─".repeat(24)];
-  
-  // Confidence Score Display
-  const confidenceColor = confidence >= 80 ? "✅" : (confidence >= 50 ? "⚠️" : "❌");
-  footerLines.push(`${confidenceColor} Tingkat Keyakinan: ${Math.max(confidence, 0)}%`);
-
-  if (limitations.length > 0) {
-    footerLines.push("❗ Keterbatasan Data:");
-    limitations.forEach(l => footerLines.push(`   • ${l}`));
-  }
-
-  if (metadata.lineage) footerLines.push(`🔗 Silsilah: ${metadata.lineage}`);
-  if (varInfo.source) footerLines.push(`📚 Sumber: ${varInfo.source}`);
-  footerLines.push(`📝 Referensi: BPS ${metadata.domainLabel || "Nasional"} (Variable ID: ${varInfo.val})`);
-  
-  // portalUrl logic removed per user feedback for 2026 context
   return lines.join("\n").trim() + "\n" + footerLines.join("\n");
 }
 
-/**
- * Wrap a tool handler with agent-friendly error handling.
- */
 export function safeHandler(fn) {
   return async (args) => {
-    try {
-      return await fn(args);
-    } catch (err) {
-      const message = err?.message || String(err);
-      let suggestion = "";
-      if (message.includes("HTTP 404")) {
-        suggestion = " Pastikan domain_id dan parameter lainnya valid.";
-      } else if (message.includes("HTTP 5")) {
-        suggestion = " Server BPS sedang bermasalah, coba lagi nanti.";
-      } else if (message.includes("fetch")) {
-        suggestion = " Periksa koneksi internet.";
-      }
-      return {
-        content: [{ type: "text", text: `❌ Error: ${message}.${suggestion}` }],
-        isError: true,
-      };
-    }
+    try { return await fn(args); }
+    catch (e) { return { content: [{ type: "text", text: `❌ Error: ${e.message}` }], isError: true }; }
   };
 }
 
-/** Shorthand for MCP text content response */
-export function textResponse(text) {
-  return { content: [{ type: "text", text }] };
-}
+export function textResponse(text) { return { content: [{ type: "text", text }] }; }
+export function generateBpsPortalUrl(v, d) { return `https://www.bps.go.id/id/statistics-table/2/${Buffer.from(`${v}#2`).toString("base64")}/`; }
