@@ -66,7 +66,7 @@ EOF
   
   # Calculate duration in ms
   local duration=$(( (end_time - start_time) / 1000000 ))
-  local duration_sec=$(echo "scale=3; $duration / 1000" | bc)
+  local duration_sec=$(node -e "console.log(($duration / 1000).toFixed(3))")
   
   # Read stdout response
   local raw_response=$(cat "$RESPONSE_TEMP")
@@ -130,6 +130,8 @@ run_benchmark 2 "Kemiskinan" "Banyuwangi" "2024" "Kemiskinan" || ((failures++))
 run_benchmark 3 "PDRB" "Jawa Barat" "2023" "PDRB" || ((failures++))
 run_benchmark 4 "Gini Ratio" "Kalimantan Barat" "2024" "Gini" || ((failures++))
 run_benchmark 5 "Inflasi" "Nasional" "2023" "Inflasi" || ((failures++))
+run_benchmark 6 "PDRB" "Nasional" "2023" "PDRB" || ((failures++))
+run_benchmark 7 "TPT" "Jawa Timur" "2024" "TPT" || ((failures++))
 
 echo -e "\n=================================================="
 if [ $failures -eq 0 ]; then
