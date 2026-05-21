@@ -132,6 +132,7 @@ run_benchmark 4 "Gini Ratio" "Kalimantan Barat" "2024" "Gini" || ((failures++))
 run_benchmark 5 "Inflasi" "Nasional" "2023" "Inflasi" || ((failures++))
 run_benchmark 6 "PDRB" "Nasional" "2023" "PDRB" || ((failures++))
 run_benchmark 7 "TPT" "Jawa Timur" "2024" "TPT" || ((failures++))
+run_benchmark 8 "IPM, Kemiskinan" "Mempawah, Banyuwangi" "2022, 2023" "Mempawah" || ((failures++))
 
 echo -e "\n=================================================="
 if [ $failures -eq 0 ]; then
